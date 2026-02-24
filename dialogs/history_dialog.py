@@ -236,7 +236,7 @@ class HistoryDialog(QDialog):
                           + push.get("deletes", 0))
             item.setText(4, str(push_total) if push_total else "—")
             if push_total:
-                item.setIcon(4, _icon("upload-cicle-svgrepo-com.svg"))
+                item.setIcon(4, _icon("cloud-sync-svgrepo-com.svg"))
                 item.setForeground(4, QBrush(_CLR_INSERT))
 
             # Pull

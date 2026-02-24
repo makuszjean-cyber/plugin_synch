@@ -79,7 +79,7 @@ class SyncReviewDialog(QDialog):
         self._remote_checkboxes = {}  # {(table, category, pk): QCheckBox}
         self._duplicate_checkboxes = {}  # table_name -> {"local": [(group, QCheckBox), ...], "remote": [...]}
         self.setWindowTitle("sketcher – Revue de synchronisation")
-        _win_icon = _icon("upload-cicle-svgrepo-com.svg")
+        _win_icon = _icon("cloud-sync-svgrepo-com.svg")
         if not _win_icon.isNull():
             self.setWindowIcon(_win_icon)
         self.setMinimumSize(820, 620)
@@ -221,7 +221,7 @@ class SyncReviewDialog(QDialog):
         # Boutons (toujours visibles en bas)
         btn_layout = QHBoxLayout()
         self.btn_confirm = QPushButton("Confirmer et synchroniser")
-        self.btn_confirm.setIcon(_icon("upload-cicle-svgrepo-com.svg"))
+        self.btn_confirm.setIcon(_icon("cloud-sync-svgrepo-com.svg"))
         self.btn_confirm.setMinimumHeight(38)
         self.btn_confirm.setStyleSheet(
             "QPushButton {"

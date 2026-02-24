@@ -44,7 +44,7 @@ class MainDialog(QDialog):
         super().__init__(parent)
         self.iface = iface
         self.setWindowTitle("sketcher – PostGIS En ligne / Hors ligne")
-        _win_icon = _icon("refresh-svgrepo-com.svg")
+        _win_icon = _icon("database-download-svgrepo-com.svg")
         if not _win_icon.isNull():
             self.setWindowIcon(_win_icon)
         self.setMinimumSize(560, 680)
@@ -146,7 +146,7 @@ class MainDialog(QDialog):
         self.combo_conn.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         row1.addWidget(self.combo_conn, 1)
         self.btn_refresh_conn = QPushButton("Rafraîchir")
-        self.btn_refresh_conn.setIcon(_icon("refresh-svgrepo-com.svg"))
+        self.btn_refresh_conn.setIcon(_icon("database-download-svgrepo-com.svg"))
         self.btn_refresh_conn.setToolTip("Rafraîchir la liste des connexions")
         row1.addWidget(self.btn_refresh_conn)
         conn_layout.addLayout(row1)
@@ -234,7 +234,7 @@ class MainDialog(QDialog):
         btn_layout.addWidget(self.btn_load)
 
         self.btn_sync = QPushButton("Synchroniser")
-        self.btn_sync.setIcon(_icon("upload-cicle-svgrepo-com.svg"))
+        self.btn_sync.setIcon(_icon("cloud-sync-svgrepo-com.svg"))
         self.btn_sync.setMinimumHeight(38)
         self.btn_sync.setToolTip(
             "Compare les couches locales (hors ligne) avec PostGIS\n"
@@ -264,7 +264,16 @@ class MainDialog(QDialog):
         self.lbl_status.setWordWrap(True)
         self.lbl_status.setStyleSheet(
             "font-family: 'Poppins'; font-size: 9pt; font-weight: normal; color: #1f2328;")
+
         layout.addWidget(self.lbl_status)
+
+        # ── Footer copyright ──
+        footer = QLabel("@copyright rgasore, gsikuly, jnyakasaza")
+        footer.setAlignment(Qt.AlignCenter)
+        footer.setStyleSheet(
+            "font-family: 'Poppins'; font-size: 8pt; color: #888; margin-top: 12px;"
+        )
+        layout.addWidget(footer)
 
     # ──────────────────────────────────────────────
     # Signaux

@@ -69,7 +69,7 @@ class sketcher:
             "PostGIS En ligne / Hors ligne",
             self.iface.mainWindow()
         )
-        _icon_main = os.path.join(icons_dir, "refresh-svgrepo-com.svg")
+        _icon_main = os.path.join(icons_dir, "database-download-svgrepo-com.svg")
         self.action_main.setIcon(QIcon(_icon_main))
         self.action_main.triggered.connect(self.run)
         self.toolbar.addAction(self.action_main)
@@ -82,7 +82,7 @@ class sketcher:
             "Synchroniser",
             self.iface.mainWindow()
         )
-        _icon_sync = os.path.join(icons_dir, "upload-cicle-svgrepo-com.svg")
+        _icon_sync = os.path.join(icons_dir, "cloud-sync-svgrepo-com.svg")
         self.action_sync.setIcon(QIcon(_icon_sync))
         self.action_sync.triggered.connect(self.run_sync_from_config)
         self.toolbar.addAction(self.action_sync)
