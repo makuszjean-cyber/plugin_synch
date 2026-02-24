@@ -123,6 +123,30 @@ La comparaison se fait via la **clé primaire** de chaque table :
 
 ---
 
+## Authentification et performances
+
+### Connexions PostGIS sécurisées (authcfg)
+
+Le plugin s'appuie sur les **connexions PostGIS configurées dans QGIS**.  
+Si une connexion utilise le système d'authentification sécurisé de QGIS (`authcfg`), les identifiants **ne sont pas stockés en clair** dans le fichier de configuration.
+
+Pour conserver de bonnes performances tout en restant compatible avec ce système :
+
+- Lors du chargement des **schémas** et des **tables**, le plugin :
+  - récupère le `username` et le `password` **décryptés en mémoire** via le gestionnaire d'authentification QGIS (`QgsApplication.authManager()` + `QgsAuthMethodConfig`),
+  - ouvre ensuite une connexion **directe** avec `psycopg2` pour exécuter les requêtes sur `information_schema`.
+- Lors de la **synchronisation**, la connexion PostgreSQL utilisée par `SyncManager` est établie de la même façon :
+  - priorité à `authcfg` (récupération des identifiants via l'auth manager),
+  - sinon utilisation du mot de passe stocké dans les paramètres QGIS, s'il existe.
+
+Ainsi :
+
+- vous pouvez utiliser des connexions PostGIS sécurisées (`authcfg`) dans QGIS,
+- les mots de passe ne sont jamais écrits en clair dans le code ou les fichiers du plugin,
+- les opérations lourdes (listing des schémas/tables, synchronisation) continuent de bénéficier des **performances de psycopg2**.
+
+---
+
 ## Limitations et extensions futures
 
 ### Limitations actuelles

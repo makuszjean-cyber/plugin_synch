@@ -63,15 +63,24 @@ class OfflineManager:
 
             # Construire l'URI PostGIS
             uri = QgsDataSourceUri()
-            uri.setConnection(
-                conn_params.get("host", "localhost"),
-                str(conn_params.get("port", "5432")),
-                conn_params.get("database", ""),
-                conn_params.get("username", ""),
-                conn_params.get("password", ""),
-            )
+            # Si authcfg est utilisé, ne pas passer le mot de passe
             if conn_params.get("authcfg"):
+                uri.setConnection(
+                    conn_params.get("host", "localhost"),
+                    str(conn_params.get("port", "5432")),
+                    conn_params.get("database", ""),
+                    conn_params.get("username", ""),
+                    ""
+                )
                 uri.setAuthConfigId(conn_params["authcfg"])
+            else:
+                uri.setConnection(
+                    conn_params.get("host", "localhost"),
+                    str(conn_params.get("port", "5432")),
+                    conn_params.get("database", ""),
+                    conn_params.get("username", ""),
+                    conn_params.get("password", "")
+                )
             uri.setDataSource(schema, table_name, geom_col if geom_col else None,
                               "", pk_col)
 

@@ -36,7 +36,8 @@ from qgis.core import (
     QgsVectorLayer, QgsDataSourceUri, QgsFeature,
     QgsProject, QgsVectorFileWriter,
     QgsCoordinateTransformContext, QgsGeometry,
-    QgsFeatureRequest
+    QgsFeatureRequest, QgsApplication, QgsAuthMethodConfig,
+    QgsSettings
 )
 
 # ── Logger ──────────────────────────────────────────
@@ -92,6 +93,40 @@ def _adapt_value_for_pg(val):
     if hasattr(val, "value"):
         return _adapt_value_for_pg(val.value())
     return val
+
+
+def _resolve_pg_credentials(conn_info):
+    """
+    Résout username/password à utiliser pour psycopg2 à partir de conn_info.
+    - Si authcfg est défini, récupère les identifiants via QgsAuthManager.
+    - Sinon, ou en cas d'échec, utilise username/password de conn_info
+      ou le mot de passe stocké dans les paramètres QGIS.
+    """
+    username = conn_info.get("username", "")
+    password = conn_info.get("password", "")
+    authcfg = conn_info.get("authcfg", "")
+
+    if authcfg:
+        try:
+            auth_mgr = QgsApplication.authManager()
+            cfg = QgsAuthMethodConfig()
+            if auth_mgr.loadAuthenticationConfig(authcfg, cfg, True):
+                cmap = cfg.configMap()
+                username = cmap.get("username", username)
+                password = cmap.get("password", password)
+        except Exception:
+            # En cas d'erreur, on retombe sur les paramètres classiques
+            pass
+
+    if not password:
+        conn_name = conn_info.get("conn_name", "")
+        if conn_name:
+            s = QgsSettings()
+            password = s.value(
+                f"PostgreSQL/connections/{conn_name}/password", ""
+            )
+
+    return username, password
 
 
 class SyncManager:
@@ -466,35 +501,32 @@ class SyncManager:
                                   geom_col, pk_col):
         """Charge une couche PostGIS → data dict."""
         uri = QgsDataSourceUri()
-        uri.setConnection(
-            conn_info.get("host", "localhost"),
-            str(conn_info.get("port", "5432")),
-            conn_info.get("database", ""),
-            conn_info.get("username", ""),
-            conn_info.get("password", ""),
-        )
+        # Si authcfg est utilisé, ne pas passer le mot de passe
         if conn_info.get("authcfg"):
+            uri.setConnection(
+                conn_info.get("host", "localhost"),
+                str(conn_info.get("port", "5432")),
+                conn_info.get("database", ""),
+                conn_info.get("username", ""),
+                ""
+            )
             uri.setAuthConfigId(conn_info["authcfg"])
+        else:
+            uri.setConnection(
+                conn_info.get("host", "localhost"),
+                str(conn_info.get("port", "5432")),
+                conn_info.get("database", ""),
+                conn_info.get("username", ""),
+                conn_info.get("password", "")
+            )
         uri.setDataSource(schema, table_name,
                           geom_col if geom_col else None, "", pk_col)
 
         layer = QgsVectorLayer(uri.uri(False), table_name, "postgres")
         if not layer.isValid():
-            from qgis.core import QgsSettings
-            conn_name = conn_info.get("conn_name", "")
-            if conn_name:
-                s = QgsSettings()
-                password = s.value(
-                    f"PostgreSQL/connections/{conn_name}/password", ""
-                )
-                if password:
-                    uri.setPassword(password)
-                    layer = QgsVectorLayer(
-                        uri.uri(False), table_name, "postgres")
-            if not layer.isValid():
-                logger.error("Impossible de charger %s.%s depuis PostGIS",
-                             schema, table_name)
-                return None
+            logger.error("Impossible de charger %s.%s depuis PostGIS",
+                         schema, table_name)
+            return None
         data, _ = self._extract_data(layer, pk_col)
         return data
 
@@ -628,16 +660,8 @@ class SyncManager:
         schema = config["schema"]
         messages = []
 
-        # Récupérer le mot de passe
-        password = conn_info.get("password", "")
-        if not password:
-            from qgis.core import QgsSettings
-            conn_name = conn_info.get("conn_name", "")
-            if conn_name:
-                s = QgsSettings()
-                password = s.value(
-                    f"PostgreSQL/connections/{conn_name}/password", ""
-                )
+        # Récupérer les identifiants (username/password), y compris via authcfg
+        username, password = _resolve_pg_credentials(conn_info)
 
         # ── Connexion PostgreSQL ──
         try:
@@ -645,7 +669,7 @@ class SyncManager:
                 host=conn_info.get("host", "localhost"),
                 port=conn_info.get("port", "5432"),
                 dbname=conn_info.get("database", ""),
-                user=conn_info.get("username", ""),
+                user=username,
                 password=password,
             )
             pg_conn.set_session(autocommit=False)

@@ -15,7 +15,7 @@ from qgis.PyQt.QtCore import Qt, QSettings
 from qgis.PyQt.QtGui import QFont, QIcon
 from qgis.core import (
     QgsSettings, QgsDataSourceUri, QgsProviderRegistry,
-    QgsVectorLayer, QgsProject
+    QgsVectorLayer, QgsProject, QgsApplication, QgsAuthMethodConfig
 )
 
 # ── Police Poppins (fallback : Segoe UI / sans-serif) ──
@@ -321,44 +321,80 @@ class MainDialog(QDialog):
             "port": s.value(f"{prefix}/port", "5432"),
             "database": s.value(f"{prefix}/database", ""),
             "username": s.value(f"{prefix}/username", ""),
-            "password": s.value(f"{prefix}/password", ""),
             "sslmode": s.value(f"{prefix}/sslmode", "prefer"),
             "conn_name": conn_name,
         }
-        # Si authcfg est défini, le stocker aussi
+        # Si authcfg est défini, ne pas stocker le mot de passe
         authcfg = s.value(f"{prefix}/authcfg", "")
         if authcfg:
             params["authcfg"] = authcfg
+        else:
+            params["password"] = s.value(f"{prefix}/password", "")
         return params
+
+    @staticmethod
+    def _resolve_credentials(params):
+        """
+        Résout les identifiants à utiliser pour une connexion directe psycopg2.
+        - Si authcfg est défini, récupère username/password depuis l'auth manager QGIS.
+        - Sinon, utilise username/password des paramètres.
+        """
+        username = params.get("username", "")
+        password = params.get("password", "")
+        authcfg = params.get("authcfg", "")
+
+        if authcfg:
+            try:
+                auth_mgr = QgsApplication.authManager()
+                cfg = QgsAuthMethodConfig()
+                if auth_mgr.loadAuthenticationConfig(authcfg, cfg, True):
+                    cmap = cfg.configMap()
+                    username = cmap.get("username", username)
+                    password = cmap.get("password", password)
+            except Exception:
+                # En cas d'échec, on retombe sur username/password classiques
+                pass
+
+        return username, password
 
     def _make_uri(self, schema=None, table=None, geom_col=None):
         """Construit un QgsDataSourceUri à partir des paramètres courants."""
         uri = QgsDataSourceUri()
         p = self._conn_params
-        uri.setConnection(
-            p.get("host", "localhost"),
-            p.get("port", "5432"),
-            p.get("database", ""),
-            p.get("username", ""),
-            p.get("password", ""),
-        )
+        # Si authcfg est utilisé, ne pas passer le mot de passe
         if p.get("authcfg"):
+            uri.setConnection(
+                p.get("host", "localhost"),
+                p.get("port", "5432"),
+                p.get("database", ""),
+                p.get("username", ""),
+                ""
+            )
             uri.setAuthConfigId(p["authcfg"])
+        else:
+            uri.setConnection(
+                p.get("host", "localhost"),
+                p.get("port", "5432"),
+                p.get("database", ""),
+                p.get("username", ""),
+                p.get("password", "")
+            )
         if schema and table:
             uri.setDataSource(schema, table, geom_col if geom_col else "")
         return uri
 
     def _get_pg_connection(self):
         """Retourne une connexion psycopg2 directe."""
+        p = self._conn_params
         try:
             import psycopg2
-            p = self._conn_params
+            username, password = self._resolve_credentials(p)
             conn = psycopg2.connect(
                 host=p.get("host", "localhost"),
                 port=p.get("port", "5432"),
                 dbname=p.get("database", ""),
-                user=p.get("username", ""),
-                password=p.get("password", ""),
+                user=username,
+                password=password,
             )
             conn.set_session(autocommit=False)
             return conn
@@ -404,7 +440,6 @@ class MainDialog(QDialog):
             QMessageBox.warning(self, "Schéma manquant", "Veuillez saisir ou sélectionner un schéma.")
             return
         self.list_tables.clear()
-
         conn = self._get_pg_connection()
         if not conn:
             return
