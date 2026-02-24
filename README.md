@@ -1,6 +1,6 @@
 # PostGIS Sketcher – Plugin QGIS
 
-**Auteur** : Rodrigue Gasore  
+**Auteur** : Rodrigue Gasore, Gracier Sikuli, Joel Nyakasaza 
 **Version** : 1.0.0  
 **Compatibilité** : QGIS 3.16+
 
