@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Database cylinder -->
+  <ellipse cx="32" cy="16" rx="20" ry="8" fill="#3b82f6" stroke="#1e40af" stroke-width="2"/>
+  <rect x="12" y="16" width="40" height="24" fill="#3b82f6" stroke="none"/>
+  <ellipse cx="32" cy="40" rx="20" ry="8" fill="#2563eb" stroke="#1e40af" stroke-width="2"/>
+  <line x1="12" y1="16" x2="12" y2="40" stroke="#1e40af" stroke-width="2"/>
+  <line x1="52" y1="16" x2="52" y2="40" stroke="#1e40af" stroke-width="2"/>
+  <ellipse cx="32" cy="24" rx="20" ry="8" fill="none" stroke="#1e40af" stroke-width="1" opacity="0.4"/>
+  <!-- Sync arrows -->
+  <path d="M 26 48 L 26 58 L 20 58 L 28 64 L 36 58 L 30 58 L 30 48" fill="#10b981" stroke="#047857" stroke-width="1"/>
+  <path d="M 38 48 L 38 58 L 44 58 L 36 64 L 28 58 L 34 58 L 34 48" fill="#f59e0b" stroke="#b45309" stroke-width="1" transform="rotate(180 36 56)"/>
+  <!-- Offline indicator -->
+  <circle cx="52" cy="10" r="6" fill="#ef4444" stroke="white" stroke-width="2"/>
+  <text x="52" y="13" text-anchor="middle" fill="white" font-size="8" font-weight="bold">⇄</text>
+</svg>

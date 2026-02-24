@@ -1,0 +1,17 @@
+[general]
+name=PostGIS Sketcher
+qgisMinimumVersion=3.16
+description=Travaillez en ligne ou hors ligne avec vos couches PostGIS, puis synchronisez les modifications avec la base de données.
+version=1.0.0
+author=Rodrigue Gasore
+email=rodriguegasore11@gmail.com
+about=Plugin QGIS permettant de charger des couches PostGIS en mode en ligne (connexion directe) ou hors ligne (copie locale GeoPackage). En mode hors ligne, les modifications (ajouts, mises à jour, suppressions) sont détectées et peuvent être synchronisées avec la base PostGIS, avec gestion des conflits.
+tracker=https://github.com/rodrigue-gasore/sketcher/issues
+repository=https://github.com/rodrigue-gasore/sketcher
+tags=sketcher,sketcher,sketcher sketcher sketcher sketcher sketcher sketcher sketcher sketcher sketcher sketcher sketcher sketcher sketcher sketcher sketcher sketcher sketcher sketcher sketcher sketcher sketcher_sketcher
+homepage=https://github.com/rodrigue-gasore/sketcher
+category=Database
+icon=icon.svg
+experimental=False
+deprecated=False
+changelog=1.0.0 - Version initiale
