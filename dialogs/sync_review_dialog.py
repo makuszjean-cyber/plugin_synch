@@ -188,8 +188,7 @@ class SyncReviewDialog(QDialog):
         commit_layout = QVBoxLayout(commit_group)
         self.edit_commit_message = QLineEdit()
         self.edit_commit_message.setPlaceholderText(
-            "Ex : Correction limites parcelle 42, "
-            "ajout bâtiment zone B…")
+            "Ex : Synchronisation de la table... ")
         self.edit_commit_message.setMinimumHeight(30)
         self.edit_commit_message.setStyleSheet(
             "QLineEdit {"
