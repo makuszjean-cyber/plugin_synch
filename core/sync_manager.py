@@ -28,6 +28,8 @@ Stratégie :
 """
 
 import os
+import json
+import getpass
 import hashlib
 import logging
 from datetime import date, datetime, time
@@ -39,6 +41,8 @@ from qgis.core import (
     QgsFeatureRequest, QgsApplication, QgsAuthMethodConfig,
     QgsSettings
 )
+
+from .config_manager import ConfigManager
 
 # ── Logger ──────────────────────────────────────────
 logger = logging.getLogger("sketcher.sync")
@@ -530,6 +534,223 @@ class SyncManager:
         data, _ = self._extract_data(layer, pk_col)
         return data
 
+    # ══════════════════════════════════════════════
+    # Synchronisation du projet QGIS (.qgz)
+    # ══════════════════════════════════════════════
+
+    @staticmethod
+    def _quote_ident(name):
+        return '"' + name.replace('"', '""') + '"'
+
+    @staticmethod
+    def _file_checksum(path):
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                h.update(chunk)
+        return h.hexdigest()
+
+    @staticmethod
+    def _write_project_file(path, content_bytes):
+        directory = os.path.dirname(path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        tmp_path = path + ".tmp"
+        with open(tmp_path, "wb") as f:
+            f.write(content_bytes)
+        os.replace(tmp_path, path)
+
+    def _sync_project_qgz(self, pg_conn, config):
+        """
+        Synchronise le projet QGIS (.qgz) via une table PostGIS.
+        Retourne dict: {"messages": [...], "new_checksum": str|None, "synced_at": str|None}
+        """
+        import psycopg2
+
+        project = config.get("project") or {}
+        local_path = project.get("local_path")
+        if not local_path:
+            return {"messages": [], "new_checksum": None, "synced_at": None}
+        local_exists = os.path.exists(local_path)
+
+        table = project.get("table") or "qgis_projects"
+        table_schema = project.get("table_schema") or config.get("schema", "")
+        key = project.get("key")
+        project_name = os.path.splitext(os.path.basename(local_path))[0]
+        if not key:
+            key = project_name
+        if not key:
+            conn_name = config.get("connection", {}).get("conn_name", "") or "default"
+            key = f"{conn_name}:{config.get('schema', '')}"
+        base_msg = f"[INFO] Projet QGIS : clé = {key}"
+
+        def _with_key(msgs):
+            return [base_msg] + msgs
+
+        local_checksum = self._file_checksum(local_path) if local_exists else None
+        last_checksum = project.get("last_checksum")
+
+        def _select_project_row(schema_name, name_key):
+            q_table = self._quote_ident(table)
+            if schema_name:
+                q_schema = self._quote_ident(schema_name)
+                sql = (f"SELECT name, metadata, content "
+                       f"FROM {q_schema}.{q_table} WHERE name = %s")
+            else:
+                sql = f"SELECT name, metadata, content FROM {q_table} WHERE name = %s"
+            cur = pg_conn.cursor()
+            cur.execute(sql, (name_key,))
+            row_local = cur.fetchone()
+            cur.close()
+            return row_local
+
+        schemas_to_try = []
+        if table_schema:
+            schemas_to_try.append(table_schema)
+        else:
+            schemas_to_try.append(None)
+
+        row = None
+        active_schema = None
+        last_error = None
+        for schema_try in schemas_to_try:
+            try:
+                row = _select_project_row(schema_try, key)
+                active_schema = schema_try
+                last_error = None
+                break
+            except Exception as e:
+                last_error = e
+                continue
+
+        if last_error is not None and active_schema is None:
+            tried = ", ".join([s or "(search_path)" for s in schemas_to_try])
+            return {
+                "messages": [
+                    "[INFO] Projet QGIS : table distante indisponible "
+                    f"(qgis_projects). Schémas testés : {tried}. "
+                    f"Détail : {last_error}"
+                ],
+                "new_checksum": None,
+                "synced_at": None,
+            }
+
+        if row is None and project_name and key != project_name:
+            for schema_try in schemas_to_try:
+                try:
+                    row = _select_project_row(schema_try, project_name)
+                    if row:
+                        key = project_name
+                        active_schema = schema_try
+                    break
+                except Exception:
+                    continue
+
+        remote_blob = row[2] if row else None
+        remote_checksum = (
+            hashlib.sha256(bytes(remote_blob)).hexdigest()
+            if remote_blob is not None else None
+        )
+
+        # Décider de la direction
+        if remote_checksum is None and local_exists:
+            action = "push"
+        elif not local_exists and remote_checksum is not None:
+            action = "pull"
+        elif local_checksum == remote_checksum and local_checksum is not None:
+            action = "none"
+        elif last_checksum:
+            if local_checksum == last_checksum and remote_checksum != last_checksum:
+                action = "pull"
+            elif remote_checksum == last_checksum and local_checksum != last_checksum:
+                action = "push"
+            else:
+                action = "conflict"
+        else:
+            # Première synchro : on préfère récupérer la version serveur si elle existe
+            action = "pull" if remote_checksum is not None else "none"
+
+        if action == "none":
+            return {
+                "messages": _with_key(["[OK] Projet QGIS : aucune modification."]),
+                "new_checksum": local_checksum,
+                "synced_at": datetime.now().isoformat(),
+            }
+
+        if action == "conflict":
+            return {
+                "messages": _with_key([
+                    "[ATTENTION] Projet QGIS : conflit local/distant. "
+                    "Synchronisation ignorée (choix manuel requis)."
+                ]),
+                "new_checksum": None,
+                "synced_at": None,
+            }
+
+        if action == "pull":
+            if remote_blob is None:
+                return {
+                    "messages": _with_key(["[INFO] Projet QGIS : aucune version distante à importer."]),
+                    "new_checksum": None,
+                    "synced_at": None,
+                }
+            self._write_project_file(local_path, bytes(remote_blob))
+            return {
+                "messages": _with_key([
+                    "[OK] Projet QGIS : version distante importée. "
+                    "Rechargez le projet si nécessaire."
+                ]),
+                "new_checksum": remote_checksum,
+                "synced_at": datetime.now().isoformat(),
+            }
+
+        # action == "push"
+        if not local_exists:
+            return {
+                "messages": _with_key([f"[INFO] Projet QGIS introuvable : {local_path}"]),
+                "new_checksum": None,
+                "synced_at": None,
+            }
+        with open(local_path, "rb") as f:
+            blob = f.read()
+        # Construire les métadonnées
+        try:
+            user = getpass.getuser()
+        except Exception:
+            user = None
+        if not user:
+            user = os.environ.get("USERNAME") or os.environ.get("USER") or "inconnu"
+        meta = {
+            "last_modified_time": datetime.now().isoformat(sep=" ", timespec="seconds"),
+            "last_modified_user": user,
+        }
+
+        q_table = self._quote_ident(table)
+        if active_schema:
+            q_schema = self._quote_ident(active_schema)
+            target = f"{q_schema}.{q_table}"
+        else:
+            target = f"{q_table}"
+
+        cur = pg_conn.cursor()
+        cur.execute(
+            f"""
+            INSERT INTO {target}
+                (name, metadata, content)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (name) DO UPDATE
+            SET metadata = EXCLUDED.metadata,
+                content = EXCLUDED.content
+            """,
+            (key, json.dumps(meta), psycopg2.Binary(blob))
+        )
+        cur.close()
+        return {
+            "messages": _with_key(["[OK] Projet QGIS : version locale envoyée au serveur."]),
+            "new_checksum": local_checksum,
+            "synced_at": datetime.now().isoformat(),
+        }
+
     @staticmethod
     def _extract_data(layer, pk_col):
         """
@@ -690,6 +911,7 @@ class SyncManager:
             total_ops = 1
         current_op = 0
 
+        project_sync = {"messages": [], "new_checksum": None, "synced_at": None}
         try:
             cur = pg_conn.cursor()
 
@@ -835,6 +1057,25 @@ class SyncManager:
                         f"[INFO] {table_name} : aucune modification "
                         f"locale a pousser vers le serveur.")
 
+            # ── Synchronisation du projet QGIS (.qgz) ──
+            try:
+                # Utiliser une connexion séparée pour éviter un état de transaction invalide
+                pg_proj = psycopg2.connect(
+                    host=conn_info.get("host", "localhost"),
+                    port=conn_info.get("port", "5432"),
+                    dbname=conn_info.get("database", ""),
+                    user=username,
+                    password=password,
+                )
+                pg_proj.set_session(autocommit=True)
+                project_sync = self._sync_project_qgz(pg_proj, config)
+                messages.extend(project_sync.get("messages", []))
+                pg_proj.close()
+            except Exception as e:
+                msg = f"[ERREUR] Projet QGIS : {e}"
+                messages.append(msg)
+                logger.error(msg)
+
             pg_conn.commit()
             logger.info("COMMIT PostgreSQL réussi.")
             cur.close()
@@ -858,6 +1099,21 @@ class SyncManager:
             return False, messages
 
         pg_conn.close()
+
+        # Mettre à jour l'état du projet QGIS après commit
+        if project_sync.get("new_checksum"):
+            try:
+                cfg_mgr = ConfigManager(config.get("gpkg_path"))
+                if cfg_mgr.load(config.get("gpkg_path")):
+                    cfg_mgr.update_project_sync_state(
+                        project_sync["new_checksum"],
+                        project_sync.get("synced_at"),
+                    )
+                if isinstance(config.get("project"), dict):
+                    config["project"]["last_checksum"] = project_sync["new_checksum"]
+                    config["project"]["last_sync"] = project_sync.get("synced_at")
+            except Exception as e:
+                logger.error("Erreur mise à jour config projet : %s", e)
 
         # ── Pull remote → GeoPackage (+ doublons locaux à supprimer) ──
         if remote_actions or duplicate_deletions:

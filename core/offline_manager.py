@@ -109,8 +109,24 @@ class OfflineManager:
         if progress_callback:
             progress_callback(total, total, "Terminé.")
 
+        # S'assurer d'avoir un projet local enregistré (.qgz)
+        project_path, created = self._ensure_local_project(
+            conn_params.get("conn_name", ""), schema
+        )
+        if created:
+            messages.append(
+                f"[OK] Projet QGIS local créé : {project_path}"
+            )
+        elif project_path:
+            messages.append(
+                f"[INFO] Projet QGIS local : {project_path}"
+            )
+
         # Sauvegarder la config
-        self.config.save(conn_params, schema, tables_info, gpkg_path)
+        self.config.save(
+            conn_params, schema, tables_info, gpkg_path,
+            project_path=project_path
+        )
 
         return True, messages
 
@@ -186,6 +202,30 @@ class OfflineManager:
             added.append(table_name)
 
         return added
+
+    def _ensure_local_project(self, conn_name, schema):
+        """
+        S'assure que le projet QGIS est sauvegardé localement.
+        Retourne (project_path, created_bool).
+        """
+        project = QgsProject.instance()
+        project_path = project.fileName()
+        if project_path:
+            return project_path, False
+
+        sketcher_dir = ConfigManager.get_sketcher_dir()
+        safe_name = f"{conn_name}_{schema}".replace(" ", "_")
+        project_path = os.path.join(sketcher_dir, f"{safe_name}.qgz")
+        project.setFileName(project_path)
+        ok = project.write()
+        if not ok:
+            return None, False
+        # Recharger explicitement le projet créé
+        try:
+            project.read(project_path)
+        except Exception:
+            pass
+        return project_path, True
 
     # ──────────────────────────────────────────────
     # Utilitaires

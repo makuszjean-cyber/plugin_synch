@@ -8,6 +8,7 @@ Synchronisation non-bloquante via QgsTask.
 """
 
 import os
+import hashlib
 import logging
 from qgis.PyQt.QtWidgets import (
     QAction, QMessageBox, QToolBar, QInputDialog
@@ -330,6 +331,18 @@ class sketcher:
 
         # Vérifier s'il y a des changements ou des doublons
         has_changes = False
+        # Changement potentiel du projet QGIS (.qgz)
+        project_info = (self._current_config or {}).get("project", {}) or {}
+        local_path = project_info.get("local_path")
+        last_checksum = project_info.get("last_checksum")
+        if local_path and os.path.exists(local_path):
+            h = hashlib.sha256()
+            with open(local_path, "rb") as f:
+                for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                    h.update(chunk)
+            current_checksum = h.hexdigest()
+            if current_checksum != last_checksum:
+                has_changes = True
         for ch in all_changes.values():
             if (ch.get("inserts") or ch.get("updates")
                     or ch.get("deletes") or ch.get("conflicts")
@@ -423,10 +436,14 @@ class sketcher:
             rev_num = rev.get("rev_number", "?")
             rev_msg = rev.get("message", "")
             title = "Synchronisation terminée"
+            project_msgs = [m for m in task.messages if "Projet QGIS" in m]
+            project_hint = ""
+            if project_msgs:
+                project_hint = " (projet QGIS inclus)"
             first_line = (
                 "Synchronisation terminée avec des erreurs (voir le détail ci-dessous)."
                 if has_errors
-                else "Synchronisation réussie."
+                else f"Synchronisation réussie.{project_hint}"
             )
             detail_lines = [
                 f"Révision #{rev_num}",

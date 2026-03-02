@@ -72,7 +72,9 @@ class ConfigManager:
     def set_gpkg_path(self, gpkg_path):
         self._gpkg_path = gpkg_path
 
-    def save(self, conn_params, schema, tables_info, gpkg_path):
+    def save(self, conn_params, schema, tables_info, gpkg_path,
+             project_path=None, project_table=None,
+             project_key=None, project_table_schema=None):
         """
         Sauvegarde la configuration.
         
@@ -80,12 +82,31 @@ class ConfigManager:
         schema      : str   – nom du schéma
         tables_info : list  – [{"table": ..., "geom_col": ..., "pk_col": ...}, ...]
         gpkg_path   : str   – chemin absolu du GeoPackage
+        project_path: str   – chemin du projet QGIS (.qgz) local
+        project_table: str  – table distante stockant le projet QGIS
+        project_key : str   – identifiant unique du projet (clé distante)
+        project_table_schema : str – schéma de la table distante
         """
         self._gpkg_path = gpkg_path
         # Chiffrer légèrement host / database / schema dans le JSON
         enc_host = _xor_encrypt(conn_params.get("host", ""), _SKETCHER_SECRET_KEY)
         enc_database = _xor_encrypt(conn_params.get("database", ""), _SKETCHER_SECRET_KEY)
         enc_schema = _xor_encrypt(schema, _SKETCHER_SECRET_KEY)
+
+        project_block = None
+        if project_path:
+            conn_name = conn_params.get("conn_name", "") or "default"
+            project_name = os.path.splitext(
+                os.path.basename(project_path)
+            )[0]
+            project_block = {
+                "local_path": project_path,
+                "table": project_table or "qgis_projects",
+                "table_schema": project_table_schema or schema,
+                "key": project_key or project_name or f"{conn_name}:{schema}",
+                "last_checksum": None,
+                "last_sync": None,
+            }
 
         self._config = {
             "version": "1.0",
@@ -105,6 +126,8 @@ class ConfigManager:
             "gpkg_path": gpkg_path,
             "last_sync": datetime.now().isoformat(),
         }
+        if project_block:
+            self._config["project"] = project_block
         config_path = self.config_path
         if config_path:
             os.makedirs(os.path.dirname(config_path), exist_ok=True)
@@ -133,6 +156,23 @@ class ConfigManager:
             self._config["connection"] = conn
             self._config["schema"] = _xor_decrypt(self._config.get("schema", ""), _SKETCHER_SECRET_KEY)
 
+            project = self._config.get("project")
+            if isinstance(project, dict):
+                if not project.get("table"):
+                    project["table"] = "qgis_projects"
+                if not project.get("table_schema"):
+                    project["table_schema"] = self._config.get("schema", "")
+                if not project.get("key"):
+                    local_path = project.get("local_path", "")
+                    if local_path:
+                        project["key"] = os.path.splitext(
+                            os.path.basename(local_path)
+                        )[0]
+                    if not project.get("key"):
+                        conn_name = conn.get("conn_name", "") or "default"
+                        project["key"] = f"{conn_name}:{self._config.get('schema', '')}"
+                self._config["project"] = project
+
             return self._config
         except (json.JSONDecodeError, IOError):
             return None
@@ -143,6 +183,19 @@ class ConfigManager:
     def update_last_sync(self):
         """Met à jour le timestamp de dernière synchronisation."""
         self._config["last_sync"] = datetime.now().isoformat()
+        config_path = self.config_path
+        if config_path:
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(self._config, f, indent=2, ensure_ascii=False)
+
+    def update_project_sync_state(self, checksum, synced_at=None):
+        """Met à jour l'état de synchronisation du projet QGIS."""
+        if "project" not in self._config:
+            return
+        if synced_at is None:
+            synced_at = datetime.now().isoformat()
+        self._config["project"]["last_checksum"] = checksum
+        self._config["project"]["last_sync"] = synced_at
         config_path = self.config_path
         if config_path:
             with open(config_path, "w", encoding="utf-8") as f:
